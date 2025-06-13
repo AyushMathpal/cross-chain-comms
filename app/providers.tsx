@@ -8,7 +8,7 @@ import {
 import { WagmiProvider, createConfig, http } from "wagmi";
 import {
   sepolia,
-  polygonMumbai,
+  polygonAmoy,
   arbitrumSepolia,
   avalancheFuji,
 } from "wagmi/chains";
@@ -30,12 +30,12 @@ const connectors = connectorsForWallets(
 
 const config = createConfig({
   connectors,
-  chains: [sepolia, polygonMumbai, arbitrumSepolia, avalancheFuji],
+  chains: [sepolia, polygonAmoy, arbitrumSepolia, avalancheFuji],
   transports: {
-    [sepolia.id]: http(),
-    [polygonMumbai.id]: http(),
-    [arbitrumSepolia.id]: http(),
-    [avalancheFuji.id]: http(),
+    [sepolia.id]: http("https://rpc.sepolia.ethpandaops.io"),
+    [polygonAmoy.id]: http("https://rpc-amoy.polygon.technology"),
+    [arbitrumSepolia.id]: http("https://sepolia-rollup.arbitrum.io/rpc"),
+    [avalancheFuji.id]: http("https://api.avax-test.network/ext/bc/C/rpc"),
   },
   ssr: true,
 });

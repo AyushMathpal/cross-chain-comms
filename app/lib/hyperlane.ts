@@ -2,14 +2,14 @@ import { ethers } from "ethers";
 
 export const HYPERLANE_MAILBOXES = {
   11155111: "0xfFAEF09B3cd11D9b20d1a19bECca54EEC2884766", // Sepolia
-  80001: "0x2d1889fe5B092CD988972261434F7E5f26041115", // Polygon Mumbai
-  421614: "0xfFAEF09B3cd11D9b20d1a19bECca54EEC2884766", // Arbitrum Sepolia
-  43113: "0xfFAEF09B3cd11D9b20d1a19bECca54EEC2884766", // Avalanche Fuji
+  80002: "0x54148470292C24345fb828B003461a9444414517", // Polygon Amoy
+  421614: "0x598facE78a4302f11E3de0bee1894Da0b2Cb71F8", // Arbitrum Sepolia
+  43113: "0x5b6CFf85442B851A8e6eaBd2A4E4507B5135B3B0", // Avalanche Fuji
 };
 
 export const HYPERLANE_DOMAINS = {
   11155111: 11155111, // Sepolia
-  80001: 80001, // Polygon Mumbai
+  80002: 80002, // Polygon Amoy
   421614: 421614, // Arbitrum Sepolia
   43113: 43113, // Avalanche Fuji
 };
