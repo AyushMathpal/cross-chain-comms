@@ -19,10 +19,10 @@ export default function Home() {
   const currentChainId = useChainId();
   const { switchChain } = useSwitchChain();
   const [selectedSourceChain, setSelectedSourceChain] = useState<number>(
-    sepolia.id
+    polygonAmoy.id
   );
   const [selectedDestChain, setSelectedDestChain] = useState<number>(
-    polygonAmoy.id
+    sepolia.id
   );
 
   return (

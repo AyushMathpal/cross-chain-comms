@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Send, AlertCircle } from "lucide-react";
+import { Send, AlertCircle, RefreshCw } from "lucide-react";
 import { useAccount } from "wagmi";
 import { ethers } from "ethers";
 import { HyperlaneService, HyperlaneMessage } from "../lib/hyperlane";
@@ -16,7 +16,7 @@ interface CrossChainMessengerProps {
 
 const chainNames: { [key: number]: string } = {
   11155111: "Sepolia",
-  80001: "Polygon Mumbai",
+  80002: "Polygon Amoy",
   421614: "Arbitrum Sepolia",
   43113: "Avalanche Fuji",
 };
@@ -44,13 +44,16 @@ export function CrossChainMessenger({
   const [hyperlaneService, setHyperlaneService] =
     useState<HyperlaneService | null>(null);
   const [recipient, setRecipient] = useState("");
+  const [userBalance, setUserBalance] = useState<string>("");
+  const [isCheckingBalance, setIsCheckingBalance] = useState(false);
+  const [lastError, setLastError] = useState<string>("");
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.ethereum) {
       const ethersProvider = new ethers.providers.Web3Provider(window.ethereum);
       setHyperlaneService(new HyperlaneService(ethersProvider));
     }
-  }, []);
+  }, [currentChainId]);
 
   useEffect(() => {
     if (hyperlaneService && address) {
@@ -68,6 +71,16 @@ export function CrossChainMessenger({
             return;
           }
 
+          // Check if user is on the correct source chain
+          if (currentChainId !== sourceChainId) {
+            console.log("⚠️ User is on wrong chain for fee estimation:", {
+              currentChain: currentChainId,
+              requiredChain: sourceChainId,
+            });
+            setEstimatedFee("Switch to source chain");
+            return;
+          }
+
           const fee = await hyperlaneService.estimateFee(
             sourceChainId,
             destChainId,
@@ -77,7 +90,14 @@ export function CrossChainMessenger({
           setEstimatedFee(fee);
         } catch (error) {
           console.error("Error estimating fee:", error);
-          setEstimatedFee("0.001");
+          if (error instanceof Error && error.message.includes("network")) {
+            setEstimatedFee("Network mismatch");
+            setLastError(
+              "Please switch to the correct source chain in your wallet"
+            );
+          } else {
+            setEstimatedFee("0.001");
+          }
         }
       }
     };
@@ -90,6 +110,7 @@ export function CrossChainMessenger({
     destChainId,
     recipient,
     address,
+    currentChainId,
   ]);
 
   const availableTestAddresses = {
@@ -123,7 +144,7 @@ export function CrossChainMessenger({
   const setupIncomingMessageListener = () => {
     if (!hyperlaneService || !address) return;
 
-    const supportedChains = [11155111, 80001, 421614, 43113];
+    const supportedChains = [11155111, 80002, 421614, 43113];
 
     hyperlaneService.listenForIncomingMessages(
       address,
@@ -147,12 +168,63 @@ export function CrossChainMessenger({
     );
   };
 
+  const checkUserBalance = async () => {
+    if (!hyperlaneService || !address || !window.ethereum) return;
+
+    setIsCheckingBalance(true);
+    try {
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
+      const balance = await provider.getBalance(address);
+      const formattedBalance = ethers.utils.formatEther(balance);
+      setUserBalance(formattedBalance);
+      console.log(
+        "💰 Current balance:",
+        formattedBalance,
+        getChainNativeToken(currentChainId)
+      );
+    } catch (error) {
+      console.error("Error checking balance:", error);
+      setUserBalance("Error");
+    } finally {
+      setIsCheckingBalance(false);
+    }
+  };
+
+  const getChainNativeToken = (chainId: number): string => {
+    switch (chainId) {
+      case 11155111:
+        return "ETH"; // Sepolia
+      case 80002:
+        return "POL"; // Polygon Amoy
+      case 421614:
+        return "ETH"; // Arbitrum Sepolia
+      case 43113:
+        return "AVAX"; // Avalanche Fuji
+      default:
+        return "ETH";
+    }
+  };
+
+  useEffect(() => {
+    if (hyperlaneService && address && currentChainId) {
+      checkUserBalance();
+    }
+  }, [hyperlaneService, address, currentChainId]);
+
   const handleSendMessage = async () => {
     if (!message.trim() || !hyperlaneService || !address || !recipient.trim())
       return;
 
     if (!ethers.utils.isAddress(recipient.trim())) {
-      alert("Please enter a valid Ethereum address (0x...)");
+      setLastError("Please enter a valid Ethereum address (0x...)");
+      return;
+    }
+
+    // Prevent sending to the same chain
+    if (sourceChainId === destChainId) {
+      setLastError(
+        "Cannot send cross-chain messages to the same chain. Please select different source and destination chains."
+      );
       return;
     }
 
@@ -161,6 +233,8 @@ export function CrossChainMessenger({
       return;
     }
 
+    // Clear previous errors
+    setLastError("");
     setIsLoading(true);
 
     try {
@@ -240,8 +314,20 @@ export function CrossChainMessenger({
       }
 
       setMessage("");
+      // Refresh balance after successful transaction
+      setTimeout(checkUserBalance, 2000);
     } catch (error) {
       console.error("Error sending message:", error);
+
+      // Set user-friendly error message
+      if (error instanceof Error) {
+        setLastError(error.message);
+      } else {
+        setLastError(
+          "Unknown error occurred. Please check the console for details."
+        );
+      }
+
       setMessages((prev) => {
         const updated = prev.map((msg) =>
           msg.id === prev[0]?.id
@@ -270,13 +356,71 @@ export function CrossChainMessenger({
           Send Cross-Chain Message
         </h3>
 
+        {/* Network Mismatch Warning */}
         {currentChainId !== sourceChainId && (
           <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
             <div className="flex items-center">
               <AlertCircle className="h-5 w-5 text-yellow-400 mr-2" />
-              <p className="text-sm text-yellow-700">
-                Please switch to {chainNames[sourceChainId]} to send messages
-              </p>
+              <div className="flex-1">
+                <p className="text-sm text-yellow-700 font-medium">
+                  Network Mismatch Detected
+                </p>
+                <p className="text-xs text-yellow-600 mt-1">
+                  Your wallet is on{" "}
+                  {chainNames[currentChainId] || `Chain ${currentChainId}`} but
+                  you need to be on {chainNames[sourceChainId]} to send
+                  messages. Click the Switch Chain button or change it manually
+                  in your wallet.
+                </p>
+              </div>
+              <button
+                onClick={() => switchChain({ chainId: sourceChainId })}
+                className="ml-2 px-3 py-1 bg-yellow-600 text-white text-xs rounded hover:bg-yellow-700"
+              >
+                Switch Chain
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Balance Display */}
+        <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-md">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <span className="text-sm font-medium text-gray-700">
+                Balance:{" "}
+                {userBalance
+                  ? `${parseFloat(userBalance).toFixed(
+                      4
+                    )} ${getChainNativeToken(currentChainId)}`
+                  : "Loading..."}
+              </span>
+              {isCheckingBalance && (
+                <RefreshCw className="h-4 w-4 text-gray-400 animate-spin" />
+              )}
+            </div>
+            <button
+              onClick={checkUserBalance}
+              disabled={isCheckingBalance}
+              className="text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Error Display */}
+        {lastError && (
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 text-red-400 mr-2" />
+              <p className="text-sm text-red-700">{lastError}</p>
+              <button
+                onClick={() => setLastError("")}
+                className="ml-auto text-red-400 hover:text-red-600"
+              >
+                ×
+              </button>
             </div>
           </div>
         )}
@@ -366,7 +510,9 @@ export function CrossChainMessenger({
             <div className="bg-gray-50 p-3 rounded-md">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Estimated Fee:</span>
-                <span className="font-medium">{estimatedFee} ETH</span>
+                <span className="font-medium">
+                  {estimatedFee} {getChainNativeToken(sourceChainId)}
+                </span>
               </div>
             </div>
           )}

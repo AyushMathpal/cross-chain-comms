@@ -156,6 +156,9 @@ export class HyperlaneService {
   > {
     try {
       const signer = await this.getSigner();
+      // Check user balance first
+      const balance = await signer.getBalance();
+
       const mailboxAddress =
         HYPERLANE_MAILBOXES[sourceChainId as keyof typeof HYPERLANE_MAILBOXES];
 
@@ -184,28 +187,74 @@ export class HyperlaneService {
         estimatedFee = this.cachedEstimate!.estimatedFee;
       } else {
         console.log("🔄 Getting fresh fee estimate for sending");
-        fee = await mailbox.quoteDispatch(
-          destDomain,
-          recipientBytes32,
-          messageBytes
-        );
-        estimatedFee = ethers.utils.formatEther(fee);
+        try {
+          fee = await mailbox.quoteDispatch(
+            destDomain,
+            recipientBytes32,
+            messageBytes
+          );
+          estimatedFee = ethers.utils.formatEther(fee);
 
-        this.cachedEstimate = {
-          fee,
-          estimatedFee,
-          params: cacheKey,
-          timestamp: Date.now(),
-        };
+          // If fee is extremely small, format it better
+          if (fee.lt(ethers.utils.parseEther("0.000001"))) {
+            console.log(
+              "💸 Very small fee detected, using alternative formatting"
+            );
+            estimatedFee = fee.eq(0) ? "0" : "< 0.000001";
+          }
+
+          this.cachedEstimate = {
+            fee,
+            estimatedFee,
+            params: cacheKey,
+            timestamp: Date.now(),
+          };
+        } catch (feeError) {
+          console.error("❌ Fee estimation failed:", feeError);
+          throw new Error(`Fee estimation failed: ${feeError}`);
+        }
       }
 
       const feeWithBuffer = fee.mul(120).div(100);
+
+      // Check if user has enough balance
+      if (balance.lt(feeWithBuffer)) {
+        const required = ethers.utils.formatEther(feeWithBuffer);
+        const current = ethers.utils.formatEther(balance);
+        throw new Error(
+          `Insufficient balance. Required: ${required} ETH/POL, Current: ${current} ETH/POL`
+        );
+      }
+
+      // Prepare transaction with detailed logging
+      console.log("🔄 Preparing transaction...");
+      const txParams = {
+        value: feeWithBuffer,
+        gasLimit: 500000, // Add explicit gas limit
+      };
+
+      // Try to estimate gas first
+      try {
+        console.log("⛽ Estimating gas...");
+        const estimatedGas = await mailbox.estimateGas.dispatch(
+          destDomain,
+          recipientBytes32,
+          messageBytes,
+          txParams
+        );
+        console.log("⛽ Gas estimation successful:", estimatedGas.toString());
+        txParams.gasLimit = estimatedGas.mul(120).div(100).toNumber(); // Add 20% buffer
+      } catch (gasError) {
+        console.warn("⚠️ Gas estimation failed, using default:", gasError);
+      }
+
+      console.log("📤 Sending transaction with final params:", txParams);
 
       const tx = await mailbox.dispatch(
         destDomain,
         recipientBytes32,
         messageBytes,
-        { value: feeWithBuffer }
+        txParams
       );
 
       const receipt = await tx.wait();
@@ -224,14 +273,37 @@ export class HyperlaneService {
         }
       }
 
-      return {
+      const result = {
         messageId: messageId || "",
         txHash: receipt?.transactionHash || tx.hash,
         estimatedFee,
       };
+
+      console.log("🎊 Message sent successfully:", result);
+      return result;
     } catch (error) {
-      console.error("Error sending message:", error);
-      throw new Error("Failed to send message");
+      console.error("💥 Error sending message:", error);
+
+      // Enhanced error reporting
+      if (error instanceof Error) {
+        if (error.message.includes("insufficient funds")) {
+          throw new Error(
+            "Insufficient native token balance. Please add more POL to your wallet."
+          );
+        } else if (error.message.includes("user rejected")) {
+          throw new Error("Transaction was rejected by user.");
+        } else if (error.message.includes("network")) {
+          throw new Error(
+            "Network error. Please check your connection and try again."
+          );
+        } else if (error.message.includes("gas")) {
+          throw new Error(
+            "Gas estimation failed. Please try again with a different amount."
+          );
+        }
+      }
+
+      throw new Error(`Transaction failed: ${error}`);
     }
   }
 

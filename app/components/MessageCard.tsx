@@ -20,7 +20,7 @@ interface MessageCardProps {
 
 const chainNames: { [key: number]: string } = {
   11155111: "Sepolia",
-  80001: "Polygon Mumbai",
+  80002: "Polygon Amoy",
   421614: "Arbitrum Sepolia",
   43113: "Avalanche Fuji",
 };
@@ -54,7 +54,7 @@ const getStatusText = (status: HyperlaneMessage["status"]) => {
 const getExplorerUrl = (chainId: number, txHash: string) => {
   const explorers: { [key: number]: string } = {
     11155111: `https://sepolia.etherscan.io/tx/${txHash}`,
-    80001: `https://mumbai.polygonscan.com/tx/${txHash}`,
+    80002: `https://amoy.polygonscan.com/tx/${txHash}`,
     421614: `https://sepolia.arbiscan.io/tx/${txHash}`,
     43113: `https://testnet.snowtrace.io/tx/${txHash}`,
   };
