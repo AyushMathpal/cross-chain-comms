@@ -29,6 +29,10 @@ const testAddresses = {
   "Test Address 3": "0x3333333333333333333333333333333333333333",
 };
 
+// Constants for message validation
+const MAX_CHARACTERS = 250;
+const MAX_BYTES = 1024; // 1KB limit for safety
+
 export function CrossChainMessenger({
   sourceChainId,
   destChainId,
@@ -47,6 +51,13 @@ export function CrossChainMessenger({
   const [userBalance, setUserBalance] = useState<string>("");
   const [isCheckingBalance, setIsCheckingBalance] = useState(false);
   const [lastError, setLastError] = useState<string>("");
+  const [messageValidation, setMessageValidation] = useState<{
+    valid: boolean;
+    byteLength: number;
+    error?: string;
+  }>({ valid: true, byteLength: 0 });
+  const [feeEstimationTimeout, setFeeEstimationTimeout] =
+    useState<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.ethereum && address) {
@@ -57,57 +68,100 @@ export function CrossChainMessenger({
       // Clear any previous error states when reinitializing
       setLastError("");
       setUserBalance("");
+
+      // Cleanup function to remove event listeners
+      return () => {
+        newService.cleanup();
+      };
     }
   }, [currentChainId, address]);
 
   useEffect(() => {
     if (hyperlaneService && address) {
       loadMessageHistory();
-      setupIncomingMessageListener();
+      // setupIncomingMessageListener();
     }
   }, [hyperlaneService, address]);
 
+  const validateMessage = (msg: string) => {
+    if (!hyperlaneService) {
+      return { valid: true, byteLength: 0 };
+    }
+
+    const validation = hyperlaneService.validateMessageSize(msg);
+    setMessageValidation(validation);
+    return validation;
+  };
+
   useEffect(() => {
-    const estimateFee = async () => {
-      if (hyperlaneService && message.trim() && recipient && address) {
-        try {
-          if (!ethers.utils.isAddress(recipient)) {
-            setEstimatedFee("");
-            return;
-          }
+    validateMessage(message);
+  }, [message, hyperlaneService]);
 
-          // Check if user is on the correct source chain
-          if (currentChainId !== sourceChainId) {
-            console.log("⚠️ User is on wrong chain for fee estimation:", {
-              currentChain: currentChainId,
-              requiredChain: sourceChainId,
-            });
-            setEstimatedFee("Switch to source chain");
-            return;
-          }
+  useEffect(() => {
+    // Clear previous timeout
+    if (feeEstimationTimeout) {
+      clearTimeout(feeEstimationTimeout);
+    }
 
-          const fee = await hyperlaneService.estimateFee(
-            sourceChainId,
-            destChainId,
-            recipient,
-            message
-          );
-          setEstimatedFee(fee);
-        } catch (error) {
-          console.error("Error estimating fee:", error);
-          if (error instanceof Error && error.message.includes("network")) {
-            setEstimatedFee("Network mismatch");
-            setLastError(
-              "Please switch to the correct source chain in your wallet"
+    const timeout = setTimeout(() => {
+      const estimateFee = async () => {
+        if (hyperlaneService && message.trim() && recipient && address) {
+          try {
+            if (!ethers.utils.isAddress(recipient)) {
+              setEstimatedFee("");
+              return;
+            }
+
+            // Validate message size first
+            const validation = validateMessage(message);
+            if (!validation.valid) {
+              setEstimatedFee("Message too large");
+              return;
+            }
+
+            // Check if user is on the correct source chain
+            if (currentChainId !== sourceChainId) {
+              console.log("⚠️ User is on wrong chain for fee estimation:", {
+                currentChain: currentChainId,
+                requiredChain: sourceChainId,
+              });
+              setEstimatedFee("Switch to source chain");
+              return;
+            }
+
+            const fee = await hyperlaneService.estimateFee(
+              sourceChainId,
+              destChainId,
+              recipient,
+              message
             );
-          } else {
-            setEstimatedFee("0.001");
+            setEstimatedFee(fee);
+          } catch (error) {
+            console.error("Error estimating fee:", error);
+            if (error instanceof Error && error.message.includes("network")) {
+              setEstimatedFee("Network mismatch");
+              setLastError(
+                "Please switch to the correct source chain in your wallet"
+              );
+            } else {
+              setEstimatedFee("0.001");
+            }
           }
+        } else {
+          setEstimatedFee("");
         }
+      };
+
+      estimateFee();
+    }, 500); // 500ms debounce
+
+    setFeeEstimationTimeout(timeout);
+
+    return () => {
+      if (timeout) {
+        clearTimeout(timeout);
       }
     };
-
-    estimateFee();
   }, [
     hyperlaneService,
     message,
@@ -146,32 +200,32 @@ export function CrossChainMessenger({
     }
   };
 
-  const setupIncomingMessageListener = () => {
-    if (!hyperlaneService || !address) return;
+  // const setupIncomingMessageListener = () => {
+  //   if (!hyperlaneService || !address) return;
 
-    const supportedChains = [11155111, 80002, 421614, 43113];
+  //   const supportedChains = [11155111, 80002, 421614, 43113];
 
-    hyperlaneService.listenForIncomingMessages(
-      address,
-      supportedChains,
-      (incomingMessage) => {
-        console.log("📨 New incoming message:", incomingMessage);
+  //   hyperlaneService.listenForIncomingMessages(
+  //     address,
+  //     supportedChains,
+  //     (incomingMessage) => {
+  //       console.log("📨 New incoming message:", incomingMessage);
 
-        setMessages((prev) => {
-          const exists = prev.some((msg) => msg.id === incomingMessage.id);
-          if (exists) return prev;
+  //       setMessages((prev) => {
+  //         const exists = prev.some((msg) => msg.id === incomingMessage.id);
+  //         if (exists) return prev;
 
-          const updated = [incomingMessage, ...prev];
+  //         const updated = [incomingMessage, ...prev];
 
-          if (hyperlaneService && address) {
-            hyperlaneService.addMessageToHistory(address, incomingMessage);
-          }
+  //         if (hyperlaneService && address) {
+  //           hyperlaneService.addMessageToHistory(address, incomingMessage);
+  //         }
 
-          return updated;
-        });
-      }
-    );
-  };
+  //         return updated;
+  //       });
+  //     }
+  //   );
+  // };
 
   const checkUserBalance = async () => {
     if (!hyperlaneService || !address || !window.ethereum) return;
@@ -252,6 +306,13 @@ export function CrossChainMessenger({
       return;
     }
 
+    // Validate message size
+    const validation = validateMessage(message.trim());
+    if (!validation.valid) {
+      setLastError(validation.error || "Message is too large");
+      return;
+    }
+
     // Prevent sending to the same chain
     if (sourceChainId === destChainId) {
       setLastError(
@@ -269,38 +330,56 @@ export function CrossChainMessenger({
     setLastError("");
     setIsLoading(true);
 
+    const newMessage: HyperlaneMessage = {
+      id: Date.now().toString(),
+      content: message.trim(),
+      sender: address,
+      recipient: recipient.trim(),
+      sourceChain: sourceChainId,
+      destChain: destChainId,
+      status: "sending",
+      timestamp: Date.now(),
+      estimatedFee,
+      direction: "sent",
+    };
+
+    setMessages((prev) => [newMessage, ...prev]);
+
     try {
-      const newMessage: HyperlaneMessage = {
-        id: Date.now().toString(),
-        content: message.trim(),
-        sender: address,
-        recipient: recipient.trim(),
-        sourceChain: sourceChainId,
-        destChain: destChainId,
-        status: "sending",
-        timestamp: Date.now(),
-        estimatedFee,
-        direction: "sent",
-      };
-
-      setMessages((prev) => [newMessage, ...prev]);
-
       const result = await hyperlaneService.sendMessage(
         sourceChainId,
         destChainId,
         recipient.trim(),
         message.trim()
       );
-      if (!result) {
-        throw new Error("Failed to send message");
+
+      if (!result.success) {
+        // Handle error case without throwing
+        setLastError(result.error);
+
+        setMessages((prev) => {
+          const updated = prev.map((msg) =>
+            msg.id === newMessage.id
+              ? { ...msg, status: "failed" as HyperlaneMessage["status"] }
+              : msg
+          );
+
+          if (hyperlaneService && address && updated.length > 0) {
+            hyperlaneService.addMessageToHistory(address, updated[0]);
+          }
+          return updated;
+        });
+
+        return;
       }
 
+      // Success case
       const updatedMessage = {
         ...newMessage,
-        sourceTxHash: result?.txHash,
-        messageId: result?.messageId,
+        sourceTxHash: result.txHash,
+        messageId: result.messageId,
         status: "sent" as const,
-        estimatedFee: result?.estimatedFee,
+        estimatedFee: result.estimatedFee,
       };
 
       setMessages((prev) => {
@@ -349,20 +428,16 @@ export function CrossChainMessenger({
       // Refresh balance after successful transaction
       setTimeout(checkUserBalance, 2000);
     } catch (error) {
-      console.error("Error sending message:", error);
+      // This should rarely happen now since sendMessage returns errors instead of throwing
+      console.error("Unexpected error in handleSendMessage:", error);
 
-      // Set user-friendly error message
-      if (error instanceof Error) {
-        setLastError(error.message);
-      } else {
-        setLastError(
-          "Unknown error occurred. Please check the console for details."
-        );
-      }
+      const errorMessage =
+        error instanceof Error ? error.message : "An unexpected error occurred";
+      setLastError(errorMessage);
 
       setMessages((prev) => {
         const updated = prev.map((msg) =>
-          msg.id === prev[0]?.id
+          msg.id === newMessage.id
             ? { ...msg, status: "failed" as HyperlaneMessage["status"] }
             : msg
         );
@@ -534,25 +609,47 @@ export function CrossChainMessenger({
               onChange={(e) => setMessage(e.target.value)}
               placeholder="Enter your cross-chain message..."
               rows={3}
-              maxLength={250}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              maxLength={MAX_CHARACTERS}
+              className={`w-full border rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                !messageValidation.valid
+                  ? "border-red-300 bg-red-50"
+                  : "border-gray-300"
+              }`}
             />
             <div className="flex justify-between items-center mt-1">
               <div className="text-xs text-gray-500">
-                Maximum 250 characters
+                Maximum {MAX_CHARACTERS} characters ({MAX_BYTES} bytes)
               </div>
-              <div
-                className={`text-xs ${
-                  message.length > 250
-                    ? "text-red-500"
-                    : message.length > 200
-                    ? "text-yellow-500"
-                    : "text-gray-500"
-                }`}
-              >
-                {message.length}/250
+              <div className="text-right">
+                <div
+                  className={`text-xs ${
+                    message.length > MAX_CHARACTERS
+                      ? "text-red-500"
+                      : message.length > MAX_CHARACTERS * 0.8
+                      ? "text-yellow-500"
+                      : "text-gray-500"
+                  }`}
+                >
+                  {message.length}/{MAX_CHARACTERS} chars
+                </div>
+                <div
+                  className={`text-xs ${
+                    !messageValidation.valid
+                      ? "text-red-500"
+                      : messageValidation.byteLength > MAX_BYTES * 0.8
+                      ? "text-yellow-500"
+                      : "text-gray-500"
+                  }`}
+                >
+                  {messageValidation.byteLength}/{MAX_BYTES} bytes
+                </div>
               </div>
             </div>
+            {!messageValidation.valid && (
+              <div className="text-red-500 text-xs mt-1">
+                {messageValidation.error}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4 text-sm">
@@ -581,7 +678,8 @@ export function CrossChainMessenger({
             onClick={handleSendMessage}
             disabled={
               !message.trim() ||
-              message.length > 250 ||
+              message.length > MAX_CHARACTERS ||
+              !messageValidation.valid ||
               !recipient.trim() ||
               !ethers.utils.isAddress(recipient.trim()) ||
               isLoading ||

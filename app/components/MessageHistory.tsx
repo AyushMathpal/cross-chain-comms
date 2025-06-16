@@ -39,7 +39,7 @@ export function MessageHistory({
 
   useEffect(() => {
     pagination.reset();
-  }, [historyFilter, pagination]);
+  }, [historyFilter]);
 
   if (isLoading) {
     return (

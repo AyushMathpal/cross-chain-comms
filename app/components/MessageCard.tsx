@@ -76,14 +76,14 @@ export function MessageCard({
     >
       <div className="p-4 cursor-pointer" onClick={onToggleExpand}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3 flex-1">
+          <div className="flex items-center space-x-3 flex-1 max-w-[80%]">
             {msg.direction === "received" ? (
               <Inbox className="h-5 w-5 text-green-600 flex-shrink-0" />
             ) : (
               getStatusIcon(msg.status)
             )}
 
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 overflow-hidden">
               <div className="flex items-center space-x-2 mb-1">
                 <span
                   className={`font-medium text-sm ${
@@ -100,7 +100,7 @@ export function MessageCard({
                   {chainNames[msg.sourceChain]} → {chainNames[msg.destChain]}
                 </span>
               </div>
-              <p className="text-sm text-gray-700 truncate">
+              <p className="text-sm text-gray-700 line-clamp-2 text-ellipsis break-words">
                 &ldquo;{msg.content}&rdquo;
               </p>
             </div>
@@ -123,7 +123,7 @@ export function MessageCard({
       {isExpanded && (
         <div className="border-t border-gray-200 p-4 space-y-4">
           <div className="bg-white rounded-lg p-3 border border-gray-100">
-            <p className="text-gray-800 leading-relaxed">
+            <p className="text-gray-800 leading-relaxed line-clamp-2 max-w-[10rem] text-ellipsis">
               &ldquo;{msg.content}&rdquo;
             </p>
           </div>
