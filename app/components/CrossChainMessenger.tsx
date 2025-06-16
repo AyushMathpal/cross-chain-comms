@@ -49,11 +49,16 @@ export function CrossChainMessenger({
   const [lastError, setLastError] = useState<string>("");
 
   useEffect(() => {
-    if (typeof window !== "undefined" && window.ethereum) {
+    if (typeof window !== "undefined" && window.ethereum && address) {
       const ethersProvider = new ethers.providers.Web3Provider(window.ethereum);
-      setHyperlaneService(new HyperlaneService(ethersProvider));
+      const newService = new HyperlaneService(ethersProvider);
+      setHyperlaneService(newService);
+
+      // Clear any previous error states when reinitializing
+      setLastError("");
+      setUserBalance("");
     }
-  }, [currentChainId]);
+  }, [currentChainId, address]);
 
   useEffect(() => {
     if (hyperlaneService && address) {
@@ -173,14 +178,41 @@ export function CrossChainMessenger({
 
     setIsCheckingBalance(true);
     try {
+      // Use the same provider instance as hyperlane service
       const provider = new ethers.providers.Web3Provider(window.ethereum);
+
+      // Ensure we're getting the balance from the current network
+      await provider.send("eth_requestAccounts", []);
+      const network = await provider.getNetwork();
+
+      console.log(
+        "🔍 Checking balance on network:",
+        network.chainId,
+        "Expected:",
+        currentChainId
+      );
+
+      // If network mismatch, request chain switch or show appropriate message
+      if (network.chainId !== currentChainId) {
+        console.warn(
+          "⚠️ Network mismatch detected. Wallet network:",
+          network.chainId,
+          "App network:",
+          currentChainId
+        );
+        setUserBalance("Network mismatch");
+        return;
+      }
+
       const balance = await provider.getBalance(address);
       const formattedBalance = ethers.utils.formatEther(balance);
       setUserBalance(formattedBalance);
       console.log(
         "💰 Current balance:",
         formattedBalance,
-        getChainNativeToken(currentChainId)
+        getChainNativeToken(currentChainId),
+        "on chain:",
+        network.chainId
       );
     } catch (error) {
       console.error("Error checking balance:", error);
@@ -389,11 +421,20 @@ export function CrossChainMessenger({
             <div className="flex items-center space-x-2">
               <span className="text-sm font-medium text-gray-700">
                 Balance:{" "}
-                {userBalance
-                  ? `${parseFloat(userBalance).toFixed(
-                      4
-                    )} ${getChainNativeToken(currentChainId)}`
-                  : "Loading..."}
+                {userBalance === "Network mismatch" ? (
+                  <span className="text-yellow-600">
+                    Network mismatch detected - switch to{" "}
+                    {chainNames[currentChainId]} in wallet
+                  </span>
+                ) : userBalance === "Error" ? (
+                  <span className="text-red-600">Error loading balance</span>
+                ) : userBalance ? (
+                  `${parseFloat(userBalance).toFixed(4)} ${getChainNativeToken(
+                    currentChainId
+                  )}`
+                ) : (
+                  "Loading..."
+                )}
               </span>
               {isCheckingBalance && (
                 <RefreshCw className="h-4 w-4 text-gray-400 animate-spin" />

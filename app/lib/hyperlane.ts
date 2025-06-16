@@ -54,11 +54,29 @@ export class HyperlaneService {
     this.provider = provider;
   }
 
+  // Method to clear cached state when chain/account changes
+  clearCache(): void {
+    this.signer = null;
+    this.cachedEstimate = null;
+    console.log("🧹 Cleared HyperlaneService cache");
+  }
+
   async getSigner(): Promise<ethers.Signer> {
-    if (!this.signer) {
+    // Always refresh the signer to ensure it's connected to the current account/network
+    try {
+      // Request account access
+      await this.provider.send("eth_requestAccounts", []);
       this.signer = this.provider.getSigner();
+
+      // Verify the signer is working by getting the address
+      const address = await this.signer.getAddress();
+      console.log("✅ Signer connected for address:", address);
+
+      return this.signer;
+    } catch (error) {
+      console.error("❌ Error getting signer:", error);
+      throw new Error(`Failed to get wallet signer: ${error}`);
     }
-    return this.signer;
   }
 
   private addressToBytes32(address: string): string {
@@ -155,6 +173,21 @@ export class HyperlaneService {
     | undefined
   > {
     try {
+      // Verify network first
+      const network = await this.provider.getNetwork();
+      console.log(
+        "📡 Current network:",
+        network.chainId,
+        "Expected source chain:",
+        sourceChainId
+      );
+
+      if (network.chainId !== sourceChainId) {
+        throw new Error(
+          `Network mismatch. Please switch to chain ${sourceChainId} in your wallet. Currently on chain ${network.chainId}.`
+        );
+      }
+
       const signer = await this.getSigner();
       // Check user balance first
       const balance = await signer.getBalance();
@@ -288,18 +321,28 @@ export class HyperlaneService {
       if (error instanceof Error) {
         if (error.message.includes("insufficient funds")) {
           throw new Error(
-            "Insufficient native token balance. Please add more POL to your wallet."
+            "Insufficient native token balance. Please add more tokens to your wallet."
           );
         } else if (error.message.includes("user rejected")) {
           throw new Error("Transaction was rejected by user.");
-        } else if (error.message.includes("network")) {
-          throw new Error(
-            "Network error. Please check your connection and try again."
-          );
+        } else if (
+          error.message.includes("network") ||
+          error.message.includes("Network mismatch")
+        ) {
+          throw error; // Re-throw network mismatch errors as-is
         } else if (error.message.includes("gas")) {
           throw new Error(
             "Gas estimation failed. Please try again with a different amount."
           );
+        } else if (
+          error.message.includes("unknown account") ||
+          error.message.includes("UNSUPPORTED_OPERATION")
+        ) {
+          throw new Error(
+            "Wallet connection issue. Please disconnect and reconnect your wallet, or refresh the page and try again."
+          );
+        } else if (error.message.includes("Failed to get wallet signer")) {
+          throw error; // Re-throw signer errors as-is
         }
       }
 
