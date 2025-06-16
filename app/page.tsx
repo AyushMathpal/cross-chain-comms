@@ -142,17 +142,15 @@ export default function Home() {
                       }
                       className="w-full bg-white/10 backdrop-blur-lg border border-white/30 rounded-2xl px-4 py-4 text-white focus:outline-none focus:ring-4 focus:ring-gray-500/50 focus:border-gray-400 transition-all duration-300 hover:bg-white/20 appearance-none cursor-pointer font-medium"
                     >
-                      {supportedChains
-                        .filter((chain) => chain.id !== selectedSourceChain)
-                        .map((chain) => (
-                          <option
-                            key={chain.id}
-                            value={chain.id}
-                            className="bg-gray-800 text-white"
-                          >
-                            {chain.name}
-                          </option>
-                        ))}
+                      {supportedChains.map((chain) => (
+                        <option
+                          key={chain.id}
+                          value={chain.id}
+                          className="bg-gray-800 text-white"
+                        >
+                          {chain.name}
+                        </option>
+                      ))}
                     </select>
                     <div className="absolute right-4 top-1/2 transform -translate-y-1/2 pointer-events-none">
                       <div className="w-2 h-2 bg-white rounded-full"></div>

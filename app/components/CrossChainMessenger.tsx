@@ -388,6 +388,25 @@ export function CrossChainMessenger({
           Send Cross-Chain Message
         </h3>
 
+        {/* Same Chain Warning */}
+        {sourceChainId === destChainId && (
+          <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-md">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 text-orange-400 mr-2" />
+              <div className="flex-1">
+                <p className="text-sm text-orange-700 font-medium">
+                  Invalid Chain Selection
+                </p>
+                <p className="text-xs text-orange-600 mt-1">
+                  Source and destination chains cannot be the same. Cross-chain
+                  messaging requires different chains. Please select a different
+                  destination chain.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Network Mismatch Warning */}
         {currentChainId !== sourceChainId && (
           <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
@@ -567,7 +586,8 @@ export function CrossChainMessenger({
               !ethers.utils.isAddress(recipient.trim()) ||
               isLoading ||
               currentChainId !== sourceChainId ||
-              !hyperlaneService
+              !hyperlaneService ||
+              sourceChainId === destChainId
             }
             className="w-full bg-indigo-600 text-white py-2 px-4 rounded-md hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
           >

@@ -37,18 +37,9 @@ export interface HyperlaneMessage {
   direction: "sent" | "received";
 }
 
-interface CachedEstimate {
-  fee: ethers.BigNumber;
-  estimatedFee: string;
-  params: string;
-  timestamp: number;
-}
-
 export class HyperlaneService {
   private provider: ethers.providers.Web3Provider;
   private signer: ethers.Signer | null = null;
-  private cachedEstimate: CachedEstimate | null = null;
-  private readonly CACHE_DURATION = 2 * 60 * 1000; // 2 minutes
 
   constructor(provider: ethers.providers.Web3Provider) {
     this.provider = provider;
@@ -57,7 +48,6 @@ export class HyperlaneService {
   // Method to clear cached state when chain/account changes
   clearCache(): void {
     this.signer = null;
-    this.cachedEstimate = null;
     console.log("🧹 Cleared HyperlaneService cache");
   }
 
@@ -83,44 +73,28 @@ export class HyperlaneService {
     return ethers.utils.hexZeroPad(address, 32);
   }
 
-  private createCacheKey(
-    sourceChainId: number,
-    destChainId: number,
-    recipient: string,
-    message: string
-  ): string {
-    return `${sourceChainId}-${destChainId}-${recipient}-${message}`;
-  }
-
-  private isCacheValid(params: string): boolean {
-    if (!this.cachedEstimate) return false;
-
-    const isParamsSame = this.cachedEstimate.params === params;
-    const isNotExpired =
-      Date.now() - this.cachedEstimate.timestamp < this.CACHE_DURATION;
-
-    return isParamsSame && isNotExpired;
-  }
-
   async estimateFee(
     sourceChainId: number,
     destChainId: number,
     recipient: string,
     message: string
   ): Promise<string> {
-    const cacheKey = this.createCacheKey(
-      sourceChainId,
-      destChainId,
-      recipient,
-      message
-    );
-
-    if (this.isCacheValid(cacheKey)) {
-      console.log("🚀 Using cached fee estimate");
-      return this.cachedEstimate!.estimatedFee;
-    }
-
     try {
+      // Verify network first before estimating fee
+      const network = await this.provider.getNetwork();
+      console.log(
+        "🔍 Fee estimation - Current network:",
+        network.chainId,
+        "Expected source chain:",
+        sourceChainId
+      );
+
+      if (network.chainId !== sourceChainId) {
+        throw new Error(
+          `Network mismatch during fee estimation. Please switch to chain ${sourceChainId} in your wallet. Currently on chain ${network.chainId}.`
+        );
+      }
+
       const mailboxAddress =
         HYPERLANE_MAILBOXES[sourceChainId as keyof typeof HYPERLANE_MAILBOXES];
       if (!mailboxAddress) {
@@ -137,6 +111,7 @@ export class HyperlaneService {
       const recipientBytes32 = this.addressToBytes32(recipient);
       const messageBytes = ethers.utils.toUtf8Bytes(message);
 
+      console.log("💰 Calculating fresh fee estimate...");
       const fee = await mailbox.quoteDispatch(
         destDomain,
         recipientBytes32,
@@ -144,18 +119,10 @@ export class HyperlaneService {
       );
       const estimatedFee = ethers.utils.formatEther(fee);
 
-      this.cachedEstimate = {
-        fee,
-        estimatedFee,
-        params: cacheKey,
-        timestamp: Date.now(),
-      };
-
-      console.log("💰 Fresh fee estimate calculated and cached");
       return estimatedFee;
     } catch (error) {
       console.error("Error estimating fee:", error);
-      return "-";
+      throw error; // Re-throw the error so the component can handle it properly
     }
   }
 
@@ -205,47 +172,29 @@ export class HyperlaneService {
       const recipientBytes32 = this.addressToBytes32(recipient);
       const messageBytes = ethers.utils.toUtf8Bytes(message);
 
-      const cacheKey = this.createCacheKey(
-        sourceChainId,
-        destChainId,
-        recipient,
-        message
-      );
+      // Get fresh fee estimate for sending
+      console.log("🔄 Getting fresh fee estimate for sending...");
       let fee: ethers.BigNumber;
       let estimatedFee: string;
 
-      if (this.isCacheValid(cacheKey)) {
-        console.log("💎 Using cached fee for sending");
-        fee = this.cachedEstimate!.fee;
-        estimatedFee = this.cachedEstimate!.estimatedFee;
-      } else {
-        console.log("🔄 Getting fresh fee estimate for sending");
-        try {
-          fee = await mailbox.quoteDispatch(
-            destDomain,
-            recipientBytes32,
-            messageBytes
+      try {
+        fee = await mailbox.quoteDispatch(
+          destDomain,
+          recipientBytes32,
+          messageBytes
+        );
+        estimatedFee = ethers.utils.formatEther(fee);
+
+        // If fee is extremely small, format it better
+        if (fee.lt(ethers.utils.parseEther("0.000001"))) {
+          console.log(
+            "💸 Very small fee detected, using alternative formatting"
           );
-          estimatedFee = ethers.utils.formatEther(fee);
-
-          // If fee is extremely small, format it better
-          if (fee.lt(ethers.utils.parseEther("0.000001"))) {
-            console.log(
-              "💸 Very small fee detected, using alternative formatting"
-            );
-            estimatedFee = fee.eq(0) ? "0" : "< 0.000001";
-          }
-
-          this.cachedEstimate = {
-            fee,
-            estimatedFee,
-            params: cacheKey,
-            timestamp: Date.now(),
-          };
-        } catch (feeError) {
-          console.error("❌ Fee estimation failed:", feeError);
-          throw new Error(`Fee estimation failed: ${feeError}`);
+          estimatedFee = fee.eq(0) ? "0" : "< 0.000001";
         }
+      } catch (feeError) {
+        console.error("❌ Fee estimation failed:", feeError);
+        throw new Error(`Fee estimation failed: ${feeError}`);
       }
 
       const feeWithBuffer = fee.mul(120).div(100);
